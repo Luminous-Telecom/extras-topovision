@@ -187,7 +187,9 @@ EOF
 
 try_nginx() {
   command -v nginx >/dev/null 2>&1 || {
-    echo "==> nginx não encontrado — inclua $NGINX_SNIPPET na vhost da web do Zabbix."
+    echo "==> nginx não encontrado nesta máquina (normal no proxy)."
+    echo "    A location /console/{slug}/ vai na vhost da web do Zabbix server,"
+    echo "    com proxy_pass no IP:9100 desta máquina — não 127.0.0.1 do server."
     return 0
   }
   write_nginx_snippet
@@ -236,9 +238,12 @@ print_token() {
   local token
   token="$(sed -n 's/^TOPOVISION_TERMINAL_TOKEN=//p' "$ENV_FILE" | head -n 1)"
   echo
-  echo "Pronto. Gateway em 127.0.0.1:9100"
+  echo "Pronto. Gateway em 127.0.0.1:9100 (só esta máquina)."
   echo "Token (Acesso remoto no painel): ${token}"
   echo "Saúde: curl -sS http://127.0.0.1:9100/health"
+  echo "No proxy remoto: TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100 em $ENV_FILE,"
+  echo "  systemctl restart topovision-terminal, e no nginx do Zabbix server"
+  echo "  location /console/{slug}/ → IP.DESTE.PROXY:9100 (slug = nome do proxy)."
 }
 
 need_root

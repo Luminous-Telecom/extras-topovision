@@ -1,7 +1,7 @@
-# Recorte da vhost da web do Zabbix.
+# Recorte da vhost da web do Zabbix (no server). O Grafana só fala com esta origem.
 # proxy_pass com barra no fim: /console/local/terminal/open → /terminal/open no gateway.
 
-# Hosts monitorados pelo server (sem proxy).
+# Hosts monitorados pelo server (gateway nesta mesma máquina).
 location /console/local/ {
     proxy_pass http://127.0.0.1:9100/;
     proxy_http_version 1.1;
@@ -9,10 +9,11 @@ location /console/local/ {
     proxy_set_header Authorization $http_authorization;
 }
 
-# Um location por proxy. A pasta é o slug do nome no Zabbix (Proxy A → proxy-a).
-# Se este nginx não está no proxy, aponte o proxy_pass para o gateway dessa máquina.
+# Hosts do proxy. Slug = nome no Zabbix, minúsculo, sem acento (Proxy A → proxy-a).
+# O gateway roda no proxy. 127.0.0.1 aqui é o server — não alcança o proxy.
+# No proxy: TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100 e porta 9100 só a partir deste server.
 location /console/proxy-a/ {
-    proxy_pass http://127.0.0.1:9100/;
+    proxy_pass http://IP.DO.PROXY:9100/;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
     proxy_set_header Authorization $http_authorization;

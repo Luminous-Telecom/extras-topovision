@@ -14,10 +14,10 @@ estiver no ar.
 
 Slug: nome do proxy em minúsculas, sem acento (`Proxy A` → `proxy-a`).
 
-## Instalador (Zabbix server ou proxy)
+## Instalador
 
-Um comando: baixa o binário desta pasta no GitHub (ou reusa o da pasta do plugin), gera o
-token, sobe o systemd e tenta incluir `/console/` na vhost nginx do Zabbix.
+O binário sai deste repositório (GitHub). **Não** precisa de Grafana na máquina — no proxy
+remoto só o Zabbix server alcança o equipamento; o Grafana fala com a **web do Zabbix server**.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Luminous-Telecom/extras-topovision/main/terminal-gateway/install.sh | sudo bash
@@ -30,25 +30,44 @@ sudo bash terminal-gateway/install.sh
 ```
 
 No fim o script imprime o token — o mesmo valor em **Acesso remoto → Token do console remoto**.
-Repita no proxy se o host só for alcançável de lá.
+
+### No proxy (outra rede)
+
+1. Rode o instalador **no proxy** (internet só para baixar o binário; se não tiver, copie do
+   server — não do Grafana).
+2. O serviço sobe em `127.0.0.1:9100`. O server **não** entra aí. Em
+   `/etc/topovision-terminal.env`:
+
+```bash
+TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100
+```
+
+`systemctl restart topovision-terminal`. Libere a porta **9100 só do Zabbix server**.
+
+3. No **nginx da web do Zabbix server** (não no proxy), um `location` com o slug do nome do
+   proxy (`Proxy A` → `proxy-a`) apontando para o IP do proxy na rede do server. Veja
+   `nginx.conf.example`.
+
+4. O mesmo token no painel. Hosts desse proxy saem por `/console/{slug}/`.
 
 ## Binário (na mão)
 
-É o **mesmo** `gpx_topology_linux_amd64` do plugin. Os arquivos linux desta pasta acompanham
-a versão do painel. **Não** pare o Grafana: o instalador baixa daqui. Sem o argumento
-`terminal` o binário vira plugin, não gateway. Se o download falhar:
+É o **mesmo** `gpx_topology_linux_amd64` do plugin. Sem o argumento `terminal` o binário vira
+plugin, não gateway. Se o proxy não alcança o GitHub, baixe no server e copie:
 
 ```bash
-# no Grafana
-scp /var/lib/grafana/plugins/topovision-panel/gpx_topology_linux_amd64 root@proxy:/tmp/
+# no Zabbix server (ou outra máquina com internet)
+curl -fsSL -o /tmp/gpx_topology_linux_amd64 \
+  https://raw.githubusercontent.com/Luminous-Telecom/extras-topovision/main/terminal-gateway/gpx_topology_linux_amd64
+scp /tmp/gpx_topology_linux_amd64 root@proxy:/tmp/
+
 # no proxy
-sudo TOPOVISION_BIN=/tmp/gpx_topology_linux_amd64 bash install.sh
+curl -fsSL -o /tmp/tv-gw.sh \
+  https://raw.githubusercontent.com/Luminous-Telecom/extras-topovision/main/terminal-gateway/install.sh
+sudo TOPOVISION_BIN=/tmp/gpx_topology_linux_amd64 bash /tmp/tv-gw.sh
 ```
 
 ```bash
-# no Grafana, ou no ZIP descompactado
-install -m 0755 gpx_topology_linux_amd64 /usr/local/bin/gpx_topology_linux_amd64
-
 # teste na mão (Ctrl+C para sair)
 export TOPOVISION_TERMINAL_TOKEN='um-token-longo'
 /usr/local/bin/gpx_topology_linux_amd64 terminal
@@ -58,24 +77,10 @@ Escuta `127.0.0.1:9100`. `TOPOVISION_TERMINAL_LISTEN` só muda o endereço **dep
 subcomando `terminal`. Sem token, qualquer processo nesta máquina abre sessão.
 `/health` não exige token: `curl -sS http://127.0.0.1:9100/health`
 
-Para ficar no ar depois do reboot, nesta pasta:
-
-```bash
-cp topovision-terminal.env.example /etc/topovision-terminal.env
-# edite o token
-cp topovision-terminal.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now topovision-terminal
-```
-
-Repita no proxy (binário + unit + o mesmo token, ou um token por máquina se o nginx apontar
-para aquele gateway).
-
 ## Nginx (vhost da web do Zabbix)
 
-Veja `nginx.conf.example`. `proxy_pass` com barra no fim para o gateway receber
-`/terminal/open`.
+A pasta `/console/` mora na **web do Zabbix server** — é essa URL que o Grafana alcança.
+Gateway no próprio server: `proxy_pass` para `127.0.0.1:9100`. Gateway no proxy: `proxy_pass`
+para o IP:9100 dessa máquina. `proxy_pass` com barra no fim. Veja `nginx.conf.example`.
 
 No painel: **Acesso remoto → Token do console remoto** = o mesmo `TOPOVISION_TERMINAL_TOKEN`.
-A URL do console o painel monta sozinho (URL do frontend no Zabbix ou a do datasource, pasta
-`/console`). O Grafana precisa alcançar essa web.
