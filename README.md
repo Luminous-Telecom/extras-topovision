@@ -13,7 +13,6 @@ Ou **Code → Download ZIP** e extraia.
 |-------|----------|---------------|
 | [winbox-protocol](winbox-protocol/) | `winbox://` e `winboxnovo://` no Windows | [Instalar](#winbox) |
 | [openssh-protocol](openssh-protocol/) | `openssh://` — OpenSSH no CMD, sem PuTTY | [Instalar](#ssh-no-cmd) |
-| [terminal-gateway](terminal-gateway/) | Gateway SSH/Telnet no Zabbix server ou proxy | [Instalar](#gateway-do-terminal) |
 
 ## Winbox
 
@@ -46,13 +45,3 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 Deve aparecer `Registrado: openssh://`.
 
 Passo a passo: [openssh-protocol/README.md](openssh-protocol/README.md).
-
-## Gateway do terminal
-
-No **Zabbix server** e em cada **proxy** (Linux):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Luminous-Telecom/extras-topovision/main/terminal-gateway/install.sh | sudo bash
-```
-
-Passo a passo: [terminal-gateway/README.md](terminal-gateway/README.md).
