@@ -6,6 +6,7 @@ Instaladores e scripts que **não** entram no plugin Grafana. O painel está em
 | Pasta | Para quê |
 |-------|----------|
 | [winbox-protocol](winbox-protocol/) | Registrar `winbox://` e `winboxnovo://` no Windows |
+| [openssh-protocol](openssh-protocol/) | Registrar `openssh://` — OpenSSH no CMD, sem PuTTY |
 | [terminal-gateway](terminal-gateway/) | Gateway SSH/Telnet no Zabbix server ou proxy |
 
 ```bash
