@@ -1,14 +1,9 @@
-# Web do Zabbix server — uma location para todos os slugs (vários proxies).
-# map: veja console.map.conf (contexto http {}).
-# proxy_pass SEM barra: o gateway corta o slug e recebe /terminal/open.
+# Web do Zabbix server — uma location para todos os slugs.
+# map: console.map.conf no http {}. $1 = slug, $2 = /terminal/open ou /health.
 
-# resolver: o primeiro nameserver de /etc/resolv.conf, ou 127.0.0.53.
-# local → 127.0.0.1:9100. Outros slugs → DNS /etc/hosts (IP slug) ou
-# /etc/nginx/topovision-console.backends.
-
-location ~ ^/console/(?<console_slug>[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?<console_rest>/.*)$ {
+location ~ ^/console/([A-Za-z0-9][A-Za-z0-9._-]{0,63})(/.*)$ {
     resolver 127.0.0.53 127.0.0.1 ipv6=off valid=30s;
-    proxy_pass http://$topovision_console_pass$console_rest$is_args$args;
+    proxy_pass http://$topovision_console_pass$2$is_args$args;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
     proxy_set_header Authorization $http_authorization;

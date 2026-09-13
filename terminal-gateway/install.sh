@@ -209,8 +209,13 @@ nginx_resolver() {
 write_nginx_map() {
   mkdir -p "$(dirname "$NGINX_MAP")"
   cat >"$NGINX_MAP" <<EOF
-map \$console_slug \$topovision_console_pass {
-    default \$console_slug:9100;
+map \$uri \$topovision_console_slug {
+    default "";
+    ~^/console/([A-Za-z0-9][A-Za-z0-9._-]{0,63})(?:/|\$)  \$1;
+}
+
+map \$topovision_console_slug \$topovision_console_pass {
+    default \$topovision_console_slug:9100;
     local   127.0.0.1:9100;
     include ${NGINX_BACKENDS};
 }
@@ -355,9 +360,9 @@ write_nginx_snippet() {
   local resolvers
   resolvers="$(nginx_resolver)"
   cat >"$NGINX_SNIPPET" <<EOF
-location ~ ^/console/(?<console_slug>[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?<console_rest>/.*)\$ {
+location ~ ^/console/([A-Za-z0-9][A-Za-z0-9._-]{0,63})(/.*)\$ {
     resolver ${resolvers} ipv6=off valid=30s;
-    proxy_pass http://\$topovision_console_pass\$console_rest\$is_args\$args;
+    proxy_pass http://\$topovision_console_pass\$2\$is_args\$args;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
     proxy_set_header Authorization \$http_authorization;
