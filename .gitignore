@@ -1,0 +1,6 @@
+.env
+.env.*
+*.pem
+*.exe
+*.zip
+last-launch.txt

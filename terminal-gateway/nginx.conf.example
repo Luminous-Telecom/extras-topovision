@@ -1,0 +1,19 @@
+# Recorte da vhost da web do Zabbix.
+# proxy_pass com barra no fim: /console/local/terminal/open → /terminal/open no gateway.
+
+# Hosts monitorados pelo server (sem proxy).
+location /console/local/ {
+    proxy_pass http://127.0.0.1:9100/;
+    proxy_http_version 1.1;
+    proxy_read_timeout 60s;
+    proxy_set_header Authorization $http_authorization;
+}
+
+# Um location por proxy. A pasta é o slug do nome no Zabbix (Proxy A → proxy-a).
+# Se este nginx não está no proxy, aponte o proxy_pass para o gateway dessa máquina.
+location /console/proxy-a/ {
+    proxy_pass http://127.0.0.1:9100/;
+    proxy_http_version 1.1;
+    proxy_read_timeout 60s;
+    proxy_set_header Authorization $http_authorization;
+}
