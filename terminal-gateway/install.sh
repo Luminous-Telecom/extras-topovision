@@ -362,7 +362,9 @@ write_nginx_snippet() {
   cat >"$NGINX_SNIPPET" <<EOF
 location ~ ^/console/([A-Za-z0-9._-]+)(/.*)\$ {
     resolver ${resolvers} ipv6=off valid=30s;
-    proxy_pass http://\$topovision_console_pass\$2\$is_args\$args;
+    set \$tv_backend \$topovision_console_pass;
+    rewrite ^/console/[^/]+(/.*)\$ \$1 break;
+    proxy_pass http://\$tv_backend;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
     proxy_set_header Authorization \$http_authorization;
