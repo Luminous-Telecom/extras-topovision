@@ -12,6 +12,8 @@ BIN_DIR=/usr/local/bin
 ENV_FILE=/etc/topovision-terminal.env
 UNIT_FILE=/etc/systemd/system/topovision-terminal.service
 NGINX_SNIPPET=/etc/nginx/snippets/topovision-console.conf
+NGINX_MAP=/etc/nginx/conf.d/00-topovision-console-map.conf
+NGINX_BACKENDS=/etc/nginx/topovision-console.backends
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || true)"
 
 die() { echo "$*" >&2; exit 1; }
@@ -172,15 +174,44 @@ EOF
   echo "==> token novo em $ENV_FILE — cole o mesmo valor no painel (Acesso remoto)."
 }
 
+nginx_resolver() {
+  local ns
+  ns="$(awk '/^nameserver[ \t]+/ { print $2; exit }' /etc/resolv.conf 2>/dev/null || true)"
+  if [[ -n "$ns" ]]; then
+    echo "$ns"
+    return 0
+  fi
+  echo "127.0.0.53 127.0.0.1"
+}
+
+write_nginx_map() {
+  mkdir -p "$(dirname "$NGINX_MAP")"
+  cat >"$NGINX_MAP" <<EOF
+map \$console_slug \$topovision_console_pass {
+    default \$console_slug:9100;
+    local   127.0.0.1:9100;
+    include ${NGINX_BACKENDS};
+}
+EOF
+  if [[ ! -f "$NGINX_BACKENDS" ]]; then
+    cat >"$NGINX_BACKENDS" <<'EOF'
+# slug  ip:9100;
+# proxy-a  10.0.0.2:9100;
+EOF
+  fi
+}
+
 write_nginx_snippet() {
   mkdir -p "$(dirname "$NGINX_SNIPPET")"
-  cat >"$NGINX_SNIPPET" <<'EOF'
-# Uma pasta: o gateway aceita /local/terminal e /{slug}/terminal nesta máquina.
-location /console/ {
-    proxy_pass http://127.0.0.1:9100/;
+  local resolvers
+  resolvers="$(nginx_resolver)"
+  cat >"$NGINX_SNIPPET" <<EOF
+location ~ ^/console/(?<console_slug>[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?<console_rest>/.*)\$ {
+    resolver ${resolvers} ipv6=off valid=30s;
+    proxy_pass http://\$topovision_console_pass\$console_rest\$is_args\$args;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
-    proxy_set_header Authorization $http_authorization;
+    proxy_set_header Authorization \$http_authorization;
 }
 EOF
 }
@@ -188,10 +219,10 @@ EOF
 try_nginx() {
   command -v nginx >/dev/null 2>&1 || {
     echo "==> nginx não encontrado nesta máquina (normal no proxy)."
-    echo "    A location /console/{slug}/ vai na vhost da web do Zabbix server,"
-    echo "    com proxy_pass no IP:9100 desta máquina — não 127.0.0.1 do server."
+    echo "    No Zabbix server: uma location /console/{slug}/ (map) aponta o slug ao :9100."
     return 0
   }
+  write_nginx_map
   write_nginx_snippet
   local f
   for f in \
@@ -210,7 +241,7 @@ import pathlib, shutil, sys
 path = pathlib.Path(sys.argv[1])
 include = sys.argv[2]
 text = path.read_text()
-if "topovision-console" in text or "location /console/" in text:
+if "topovision-console" in text or "console_slug" in text or "location /console/" in text:
     raise SystemExit(0)
 idx = text.rstrip().rfind("}")
 if idx < 0:
@@ -242,8 +273,8 @@ print_token() {
   echo "Token (Acesso remoto no painel): ${token}"
   echo "Saúde: curl -sS http://127.0.0.1:9100/health"
   echo "No proxy remoto: TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100 em $ENV_FILE,"
-  echo "  systemctl restart topovision-terminal, e no nginx do Zabbix server"
-  echo "  location /console/{slug}/ → IP.DESTE.PROXY:9100 (slug = nome do proxy)."
+  echo "  systemctl restart topovision-terminal. No server, o nginx resolve o slug"
+  echo "  (DNS, /etc/hosts ou ${NGINX_BACKENDS}) para IP:9100 — sem location por proxy."
 }
 
 need_root

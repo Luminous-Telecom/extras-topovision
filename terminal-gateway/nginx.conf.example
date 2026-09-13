@@ -1,19 +1,14 @@
-# Recorte da vhost da web do Zabbix (no server). O Grafana só fala com esta origem.
-# proxy_pass com barra no fim: /console/local/terminal/open → /terminal/open no gateway.
+# Web do Zabbix server — uma location para todos os slugs (vários proxies).
+# map: veja console.map.conf (contexto http {}).
+# proxy_pass SEM barra: o gateway corta o slug e recebe /terminal/open.
 
-# Hosts monitorados pelo server (gateway nesta mesma máquina).
-location /console/local/ {
-    proxy_pass http://127.0.0.1:9100/;
-    proxy_http_version 1.1;
-    proxy_read_timeout 60s;
-    proxy_set_header Authorization $http_authorization;
-}
+# resolver: o primeiro nameserver de /etc/resolv.conf, ou 127.0.0.53.
+# local → 127.0.0.1:9100. Outros slugs → DNS /etc/hosts (IP slug) ou
+# /etc/nginx/topovision-console.backends.
 
-# Hosts do proxy. Slug = nome no Zabbix, minúsculo, sem acento (Proxy A → proxy-a).
-# O gateway roda no proxy. 127.0.0.1 aqui é o server — não alcança o proxy.
-# No proxy: TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100 e porta 9100 só a partir deste server.
-location /console/proxy-a/ {
-    proxy_pass http://IP.DO.PROXY:9100/;
+location ~ ^/console/(?<console_slug>[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?<console_rest>/.*)$ {
+    resolver 127.0.0.53 127.0.0.1 ipv6=off valid=30s;
+    proxy_pass http://$topovision_console_pass$console_rest$is_args$args;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
     proxy_set_header Authorization $http_authorization;

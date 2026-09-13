@@ -1,7 +1,7 @@
-# Recorte para a web do Zabbix server. Proxy remoto: um location /console/{slug}/
-# com proxy_pass no IP:9100 do proxy (não 127.0.0.1 do server).
-location /console/ {
-    proxy_pass http://127.0.0.1:9100/;
+# Uma location: /console/local/ e /console/{slug}/ — o map escolhe o :9100.
+location ~ ^/console/(?<console_slug>[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?<console_rest>/.*)$ {
+    resolver 127.0.0.53 127.0.0.1 ipv6=off valid=30s;
+    proxy_pass http://$topovision_console_pass$console_rest$is_args$args;
     proxy_http_version 1.1;
     proxy_read_timeout 60s;
     proxy_set_header Authorization $http_authorization;

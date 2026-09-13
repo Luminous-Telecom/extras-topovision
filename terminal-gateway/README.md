@@ -44,9 +44,11 @@ TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100
 
 `systemctl restart topovision-terminal`. Libere a porta **9100 só do Zabbix server**.
 
-3. No **nginx da web do Zabbix server** (não no proxy), um `location` com o slug do nome do
-   proxy (`Proxy A` → `proxy-a`) apontando para o IP do proxy na rede do server. Veja
-   `nginx.conf.example`.
+3. No **nginx da web do Zabbix server** (não no proxy): **uma** location para todos os
+   slugs (`nginx.conf.example` + `console.map.conf`). `local` vai para `127.0.0.1:9100`.
+   Os outros slugs viram `hostname:9100` — coloque o IP no DNS ou em `/etc/hosts` do
+   server (`IP slug`) ou uma linha em `/etc/nginx/topovision-console.backends`.
+   Proxy novo = hosts/DNS ou uma linha no map; sem `location` extra.
 
 4. O mesmo token no painel. Hosts desse proxy saem por `/console/{slug}/`.
 
@@ -80,7 +82,7 @@ subcomando `terminal`. Sem token, qualquer processo nesta máquina abre sessão.
 ## Nginx (vhost da web do Zabbix)
 
 A pasta `/console/` mora na **web do Zabbix server** — é essa URL que o Grafana alcança.
-Gateway no próprio server: `proxy_pass` para `127.0.0.1:9100`. Gateway no proxy: `proxy_pass`
-para o IP:9100 dessa máquina. `proxy_pass` com barra no fim. Veja `nginx.conf.example`.
+Uma location cobre todos os proxies; o `map` escolhe o `:9100` (`local` ou o slug). Veja
+`nginx.conf.example` e `console.map.conf`.
 
 No painel: **Acesso remoto → Token do console remoto** = o mesmo `TOPOVISION_TERMINAL_TOKEN`.
