@@ -6,7 +6,8 @@
 #   sudo bash terminal-gateway/install.sh
 set -euo pipefail
 
-REPO="${TOPOVISION_REPO:-Luminous-Telecom/topology-panel}"
+EXTRAS_REPO="${TOPOVISION_EXTRAS_REPO:-Luminous-Telecom/extras-topovision}"
+PLUGIN_REPO="${TOPOVISION_REPO:-Luminous-Telecom/topology-panel}"
 BIN_DIR=/usr/local/bin
 ENV_FILE=/etc/topovision-terminal.env
 UNIT_FILE=/etc/systemd/system/topovision-terminal.service
@@ -44,25 +45,42 @@ find_local_bin() {
   return 1
 }
 
-download_release_bin() {
-  command -v curl >/dev/null 2>&1 || die "Instale curl."
-  local name="gpx_topology_$(arch_suffix)"
-  local tmp zip url
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
-  url="${TOPOVISION_RELEASE_URL:-}"
-  if [[ -z "$url" ]]; then
-    url="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-      | sed -n 's/.*"browser_download_url": *"\([^"]*topovision-panel-[^"]*\.zip\)".*/\1/p' \
-      | head -n 1)"
-  fi
-  [[ -n "$url" ]] || die "Não achei o ZIP da release. Passe TOPOVISION_RELEASE_URL ou copie o binário."
-  echo "==> baixando $url"
-  curl -fsSL "$url" -o "$tmp/plugin.zip"
-  if command -v unzip >/dev/null 2>&1; then
-    unzip -qo "$tmp/plugin.zip" -d "$tmp/out"
+github_curl() {
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [[ -n "$token" ]]; then
+    curl -fsSL -H "Authorization: Bearer ${token}" -H "Accept: application/vnd.github+json" "$@"
   else
-    python3 - "$tmp/plugin.zip" "$tmp/out" <<'PY'
+    curl -fsSL "$@"
+  fi
+}
+
+is_elf() {
+  python3 -c "import sys; sys.exit(0 if open(sys.argv[1], 'rb').read(4) == b'\\x7fELF' else 1)" "$1" 2>/dev/null && return 0
+  local hex
+  hex="$(od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n')"
+  [[ "$hex" == "7f454c46" ]]
+}
+
+is_zip() {
+  local hex
+  hex="$(od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n')"
+  [[ "$hex" == "504b0304" || "$hex" == "504b0506" ]]
+}
+
+stage_bin() {
+  local staged
+  staged="$(mktemp)"
+  cp "$1" "$staged"
+  echo "$staged"
+}
+
+extract_zip_bin() {
+  local zip="$1" out="$2" name="$3"
+  mkdir -p "$out"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -qo "$zip" -d "$out"
+  else
+    python3 - "$zip" "$out" <<'PY'
 import sys, zipfile
 from pathlib import Path
 Path(sys.argv[2]).mkdir(parents=True, exist_ok=True)
@@ -71,12 +89,53 @@ with zipfile.ZipFile(sys.argv[1]) as z:
 PY
   fi
   local found
-  found="$(find "$tmp/out" -name "$name" -type f | head -n 1)"
+  found="$(find "$out" -name "$name" -type f | head -n 1)"
   [[ -n "$found" ]] || die "O ZIP não tem $name."
-  local staged
-  staged="$(mktemp)"
-  cp "$found" "$staged"
-  echo "$staged"
+  stage_bin "$found"
+}
+
+try_url() {
+  local url="$1" dest="$2" name="$3" out="$4"
+  echo "==> baixando $url" >&2
+  github_curl "$url" -o "$dest" 2>/dev/null || return 1
+  if is_elf "$dest"; then
+    stage_bin "$dest"
+    return 0
+  fi
+  if is_zip "$dest"; then
+    extract_zip_bin "$dest" "$out" "$name"
+    return 0
+  fi
+  return 1
+}
+
+download_release_bin() {
+  command -v curl >/dev/null 2>&1 || die "Instale curl."
+  local name="gpx_topology_$(arch_suffix)"
+  local tmp dest url
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  dest="$tmp/dl"
+
+  if [[ -n "${TOPOVISION_RELEASE_URL:-}" ]]; then
+    try_url "$TOPOVISION_RELEASE_URL" "$dest" "$name" "$tmp/out" && return 0
+    die "TOPOVISION_RELEASE_URL não devolveu $name (ELF ou ZIP do plugin)."
+  fi
+
+  for url in \
+    "https://raw.githubusercontent.com/${EXTRAS_REPO}/main/terminal-gateway/${name}" \
+    "https://github.com/${EXTRAS_REPO}/releases/latest/download/${name}"; do
+    try_url "$url" "$dest" "$name" "$tmp/out" && return 0
+  done
+
+  url="$(github_curl "https://api.github.com/repos/${PLUGIN_REPO}/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"browser_download_url": *"\([^"]*topovision-panel-[^"]*\.zip\)".*/\1/p' \
+    | head -n 1 || true)"
+  if [[ -n "$url" ]]; then
+    try_url "$url" "$dest" "$name" "$tmp/out" && return 0
+  fi
+
+  die "Não achei ${name}. Copie da pasta do plugin no Grafana e rode: sudo TOPOVISION_BIN=/caminho/${name} bash install.sh"
 }
 
 write_unit() {

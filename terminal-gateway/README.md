@@ -16,8 +16,8 @@ Slug: nome do proxy em minúsculas, sem acento (`Proxy A` → `proxy-a`).
 
 ## Instalador (Zabbix server ou proxy)
 
-Um comando: baixa o binário (ou reusa o da pasta do plugin), gera o token, sobe o systemd e
-tenta incluir `/console/` na vhost nginx do Zabbix.
+Um comando: baixa o binário desta pasta no GitHub (ou reusa o da pasta do plugin), gera o
+token, sobe o systemd e tenta incluir `/console/` na vhost nginx do Zabbix.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Luminous-Telecom/extras-topovision/main/terminal-gateway/install.sh | sudo bash
@@ -34,9 +34,16 @@ Repita no proxy se o host só for alcançável de lá.
 
 ## Binário (na mão)
 
-É o **mesmo** `gpx_topology_linux_amd64` do plugin (ZIP da release ou a pasta do plugin no
-Grafana). **Não** pare o processo do Grafana: copie o arquivo para o Zabbix server (e para
-cada proxy que precisa discar). Sem o argumento `terminal` o binário vira plugin, não gateway.
+É o **mesmo** `gpx_topology_linux_amd64` do plugin. Os arquivos linux desta pasta acompanham
+a versão do painel. **Não** pare o Grafana: o instalador baixa daqui. Sem o argumento
+`terminal` o binário vira plugin, não gateway. Se o download falhar:
+
+```bash
+# no Grafana
+scp /var/lib/grafana/plugins/topovision-panel/gpx_topology_linux_amd64 root@proxy:/tmp/
+# no proxy
+sudo TOPOVISION_BIN=/tmp/gpx_topology_linux_amd64 bash install.sh
+```
 
 ```bash
 # no Grafana, ou no ZIP descompactado
