@@ -158,17 +158,39 @@ WantedBy=multi-user.target
 EOF
 }
 
+is_zabbix_proxy() {
+  [[ -f /etc/zabbix/zabbix_proxy.conf ]] || command -v zabbix_proxy >/dev/null 2>&1
+}
+
+is_zabbix_web() {
+  command -v nginx >/dev/null 2>&1 || return 1
+  [[ -f /etc/zabbix/zabbix_server.conf || -f /etc/zabbix/web/zabbix.conf.php || -d /usr/share/zabbix ]] && return 0
+  command -v zabbix_server >/dev/null 2>&1
+}
+
 ensure_token() {
   umask 077
+  local listen="127.0.0.1:9100"
+  if is_zabbix_proxy && ! is_zabbix_web; then
+    listen="0.0.0.0:9100"
+  fi
   if [[ -f "$ENV_FILE" ]] && grep -q '^TOPOVISION_TERMINAL_TOKEN=.\+' "$ENV_FILE"; then
     echo "==> token já existe em $ENV_FILE"
+    if is_zabbix_proxy && ! is_zabbix_web; then
+      if grep -q '^TOPOVISION_TERMINAL_LISTEN=' "$ENV_FILE"; then
+        sed -i 's/^TOPOVISION_TERMINAL_LISTEN=.*/TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100/' "$ENV_FILE"
+      else
+        echo "TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100" >>"$ENV_FILE"
+      fi
+      echo "==> proxy: escuta em 0.0.0.0:9100 (o server precisa alcançar)."
+    fi
     return 0
   fi
   local token
   token="$(openssl rand -hex 24 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(24))')"
   cat >"$ENV_FILE" <<EOF
 TOPOVISION_TERMINAL_TOKEN=${token}
-# TOPOVISION_TERMINAL_LISTEN=127.0.0.1:9100
+TOPOVISION_TERMINAL_LISTEN=${listen}
 EOF
   chmod 600 "$ENV_FILE"
   echo "==> token novo em $ENV_FILE — cole o mesmo valor no painel (Acesso remoto)."
@@ -196,9 +218,136 @@ EOF
   if [[ ! -f "$NGINX_BACKENDS" ]]; then
     cat >"$NGINX_BACKENDS" <<'EOF'
 # slug  ip:9100;
-# proxy-a  10.0.0.2:9100;
 EOF
   fi
+  fill_backends_from_zabbix
+}
+
+fill_backends_from_zabbix() {
+  python3 - "$NGINX_BACKENDS" <<'PY' || true
+import os, pathlib, re, socket, subprocess, sys
+
+dest = pathlib.Path(sys.argv[1])
+
+def slugify(name: str) -> str:
+    import unicodedata
+    ascii_name = "".join(c for c in unicodedata.normalize("NFD", name) if unicodedata.category(c) != "Mn")
+    slug = re.sub(r"[^a-z0-9._]+", "-", ascii_name.strip().lower())
+    slug = re.sub(r"^[._-]+|[._-]+$", "", slug)[:64]
+    slug = re.sub(r"[._-]+$", "", slug)
+    return slug if re.match(r"^[a-z0-9][a-z0-9._-]{0,63}$", slug) else ""
+
+def ipv4(raw: str) -> str:
+    raw = (raw or "").strip().split("/")[0]
+    if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", raw):
+        return raw
+    return ""
+
+def resolve(name: str) -> str:
+    try:
+        return ipv4(socket.getaddrinfo(name, None, socket.AF_INET)[0][4][0])
+    except OSError:
+        return ""
+
+def parse_server_conf(path):
+    out = {}
+    if not path.is_file():
+        return out
+    for line in path.read_text(errors="replace").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        out[key.strip()] = val.strip()
+    return out
+
+def parse_php_db(path):
+    out = {}
+    if not path.is_file():
+        return out
+    text = path.read_text(errors="replace")
+    for key, dest in (
+        ("SERVER", "host"),
+        ("PORT", "port"),
+        ("DATABASE", "name"),
+        ("USER", "user"),
+        ("PASSWORD", "password"),
+    ):
+        m = re.search(rf"\$DB\[\s*'{key}'\s*\]\s*=\s*'((?:\\'|[^'])*)'", text)
+        if m:
+            out[dest] = m.group(1).replace("\\'", "'")
+    return out
+
+def mysql_rows(cfg, sql):
+    host = cfg.get("host") or cfg.get("DBHost") or "localhost"
+    name = cfg.get("name") or cfg.get("DBName") or "zabbix"
+    user = cfg.get("user") or cfg.get("DBUser") or "zabbix"
+    password = cfg.get("password") or cfg.get("DBPassword") or ""
+    port = cfg.get("port") or cfg.get("DBPort") or ""
+    cmd = ["mysql", "-N", "-B", "-u", user, name, "-e", sql]
+    if host and host not in ("localhost", "127.0.0.1"):
+        cmd[3:3] = ["-h", host]
+    if port:
+        cmd[3:3] = ["-P", port]
+    env = os.environ.copy()
+    if password:
+        env["MYSQL_PWD"] = password
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
+    except FileNotFoundError:
+        return []
+    if proc.returncode != 0:
+        return []
+    rows = []
+    for line in proc.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            rows.append((parts[0], parts[1]))
+        elif parts:
+            rows.append((parts[0], ""))
+    return rows
+
+cfg = parse_server_conf(pathlib.Path("/etc/zabbix/zabbix_server.conf"))
+php = parse_php_db(pathlib.Path("/etc/zabbix/web/zabbix.conf.php"))
+if php:
+    cfg = {
+        "DBHost": php.get("host", cfg.get("DBHost", "localhost")),
+        "DBPort": php.get("port", cfg.get("DBPort", "")),
+        "DBName": php.get("name", cfg.get("DBName", "zabbix")),
+        "DBUser": php.get("user", cfg.get("DBUser", "zabbix")),
+        "DBPassword": php.get("password", cfg.get("DBPassword", "")),
+        "host": php.get("host", ""),
+        "port": php.get("port", ""),
+        "name": php.get("name", ""),
+        "user": php.get("user", ""),
+        "password": php.get("password", ""),
+    }
+
+rows = mysql_rows(cfg, "SELECT name, address FROM proxy")
+if not rows:
+    rows = mysql_rows(
+        cfg,
+        "SELECT COALESCE(name, host), '' FROM hosts WHERE status IN (5, 6)",
+    )
+
+existing = dest.read_text() if dest.is_file() else ""
+lines = [ln for ln in existing.splitlines() if ln.strip()]
+have = {ln.split()[0] for ln in lines if ln.strip() and not ln.lstrip().startswith("#") and ln.split()}
+added = 0
+for name, address in rows:
+    slug = slugify(name)
+    if not slug or slug in have:
+        continue
+    ip = ipv4(address) or resolve(slug) or resolve(name.strip())
+    if not ip:
+        continue
+    lines.append(f"{slug}  {ip}:9100;")
+    have.add(slug)
+    added += 1
+if added:
+    dest.write_text("\n".join(lines) + "\n")
+    print(f"==> nginx: {added} proxy(s) em {dest}", file=sys.stderr)
+PY
 }
 
 write_nginx_snippet() {
@@ -216,65 +365,94 @@ location ~ ^/console/(?<console_slug>[A-Za-z0-9][A-Za-z0-9._-]{0,63})(?<console_
 EOF
 }
 
-try_nginx() {
-  command -v nginx >/dev/null 2>&1 || {
-    echo "==> nginx não encontrado nesta máquina (normal no proxy)."
-    echo "    No Zabbix server: uma location /console/{slug}/ (map) aponta o slug ao :9100."
-    return 0
-  }
-  write_nginx_map
-  write_nginx_snippet
+zabbix_vhosts() {
   local f
   for f in \
     /etc/nginx/conf.d/zabbix.conf \
     /etc/zabbix/nginx.conf \
     /etc/nginx/sites-enabled/zabbix \
-    /etc/nginx/sites-available/zabbix; do
+    /etc/nginx/sites-available/zabbix \
+    /etc/nginx/conf.d/*.conf \
+    /etc/nginx/sites-enabled/*; do
     [[ -f "$f" ]] || continue
-    if grep -q topovision-console "$f"; then
-      echo "==> nginx já inclui o console em $f"
-      nginx -t && systemctl reload nginx
-      return 0
+    [[ "$(basename "$f")" == 00-topovision-console-map.conf ]] && continue
+    if grep -Eq 'zabbix|php-fpm|fastcgi_pass' "$f"; then
+      echo "$f"
     fi
-    python3 - "$f" "$NGINX_SNIPPET" <<'PY' || continue
-import pathlib, shutil, sys
+  done | awk '!seen[$0]++'
+}
+
+patch_vhost() {
+  python3 - "$1" "$NGINX_SNIPPET" <<'PY'
+import pathlib, re, shutil, sys
 path = pathlib.Path(sys.argv[1])
 include = sys.argv[2]
 text = path.read_text()
-if "topovision-console" in text or "console_slug" in text or "location /console/" in text:
+if "topovision-console" in text and f"include {include}" in text:
     raise SystemExit(0)
-idx = text.rstrip().rfind("}")
-if idx < 0:
-    raise SystemExit(1)
-shutil.copy2(path, str(path) + ".bak-topovision")
-block = f"    # topovision-console\n    include {include};\n"
-path.write_text(text[:idx] + block + text[idx:])
+cleaned = re.sub(r"\n[ \t]*location /console/ \{.*?\n[ \t]*\}\n", "\n", text, count=1, flags=re.S)
+if "topovision-console" not in cleaned:
+    idx = cleaned.rstrip().rfind("}")
+    if idx < 0:
+        raise SystemExit(1)
+    shutil.copy2(path, str(path) + ".bak-topovision")
+    block = f"    # topovision-console\n    include {include};\n"
+    path.write_text(cleaned[:idx] + block + cleaned[idx:])
+    raise SystemExit(0)
+if cleaned != text:
+    shutil.copy2(path, str(path) + ".bak-topovision")
+    path.write_text(cleaned)
 PY
-    if nginx -t; then
-      systemctl reload nginx
-      echo "==> nginx: include em $f (backup ${f}.bak-topovision)"
+}
+
+try_nginx() {
+  if is_zabbix_proxy && ! is_zabbix_web; then
+    echo "==> proxy: nginx da web fica no Zabbix server — rode o mesmo instalador lá."
+    return 0
+  fi
+  command -v nginx >/dev/null 2>&1 || {
+    echo "==> nginx não encontrado. No Zabbix server o instalador grava o map e a location."
+    return 0
+  }
+  write_nginx_map
+  write_nginx_snippet
+  local f patched=0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    if patch_vhost "$f"; then
+      if nginx -t >/dev/null 2>&1; then
+        patched=1
+        echo "==> nginx: console em $f"
+        break
+      fi
+      if [[ -f "${f}.bak-topovision" ]]; then
+        mv "${f}.bak-topovision" "$f"
+      fi
+      echo "==> nginx -t falhou em $f — include revertido."
+    fi
+  done < <(zabbix_vhosts)
+  if nginx -t; then
+    systemctl reload nginx
+    if [[ "$patched" -eq 1 ]]; then
       return 0
     fi
-    if [[ -f "${f}.bak-topovision" ]]; then
-      mv "${f}.bak-topovision" "$f"
-    fi
-    echo "==> nginx -t falhou em $f — include revertido."
-    return 0
-  done
-  echo "==> não achei a vhost do Zabbix. Inclua na server {}:"
+  fi
+  echo "==> não achei a vhost do Zabbix. No server {}, inclua:"
   echo "    include ${NGINX_SNIPPET};"
+  echo "    e o map em http {}: ${NGINX_MAP}"
 }
 
 print_token() {
-  local token
+  local token listen
   token="$(sed -n 's/^TOPOVISION_TERMINAL_TOKEN=//p' "$ENV_FILE" | head -n 1)"
+  listen="$(sed -n 's/^TOPOVISION_TERMINAL_LISTEN=//p' "$ENV_FILE" | head -n 1)"
   echo
-  echo "Pronto. Gateway em 127.0.0.1:9100 (só esta máquina)."
+  echo "Pronto. Gateway em ${listen:-127.0.0.1:9100}"
   echo "Token (Acesso remoto no painel): ${token}"
   echo "Saúde: curl -sS http://127.0.0.1:9100/health"
-  echo "No proxy remoto: TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100 em $ENV_FILE,"
-  echo "  systemctl restart topovision-terminal. No server, o nginx resolve o slug"
-  echo "  (DNS, /etc/hosts ou ${NGINX_BACKENDS}) para IP:9100 — sem location por proxy."
+  if is_zabbix_proxy && ! is_zabbix_web; then
+    echo "Este host é proxy. Rode o mesmo instalador no Zabbix server (nginx + map)."
+  fi
 }
 
 need_root

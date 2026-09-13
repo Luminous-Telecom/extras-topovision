@@ -19,38 +19,20 @@ Slug: nome do proxy em minúsculas, sem acento (`Proxy A` → `proxy-a`).
 O binário sai deste repositório (GitHub). **Não** precisa de Grafana na máquina — no proxy
 remoto só o Zabbix server alcança o equipamento; o Grafana fala com a **web do Zabbix server**.
 
+O **mesmo** comando no Zabbix server **e** em cada proxy:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Luminous-Telecom/extras-topovision/main/terminal-gateway/install.sh | sudo bash
 ```
 
-Ou, com este repositório / o binário já na máquina:
+| Onde | O que o instalador faz |
+|------|------------------------|
+| **Zabbix server** (nginx da web) | binário, token, systemd, map + **uma** location `/console/{slug}/`, backends a partir da base Zabbix (`proxy.address` ou DNS do nome) |
+| **Proxy** | binário, token, systemd, escuta `0.0.0.0:9100` — **não** mexe no nginx da web |
 
-```bash
-sudo bash terminal-gateway/install.sh
-```
+O token impresso é o mesmo em **Acesso remoto → Token do console remoto** (o mesmo valor no server e nos proxies, ou um por máquina se o nginx apontar só àquele gateway).
 
-No fim o script imprime o token — o mesmo valor em **Acesso remoto → Token do console remoto**.
-
-### No proxy (outra rede)
-
-1. Rode o instalador **no proxy** (internet só para baixar o binário; se não tiver, copie do
-   server — não do Grafana).
-2. O serviço sobe em `127.0.0.1:9100`. O server **não** entra aí. Em
-   `/etc/topovision-terminal.env`:
-
-```bash
-TOPOVISION_TERMINAL_LISTEN=0.0.0.0:9100
-```
-
-`systemctl restart topovision-terminal`. Libere a porta **9100 só do Zabbix server**.
-
-3. No **nginx da web do Zabbix server** (não no proxy): **uma** location para todos os
-   slugs (`nginx.conf.example` + `console.map.conf`). `local` vai para `127.0.0.1:9100`.
-   Os outros slugs viram `hostname:9100` — coloque o IP no DNS ou em `/etc/hosts` do
-   server (`IP slug`) ou uma linha em `/etc/nginx/topovision-console.backends`.
-   Proxy novo = hosts/DNS ou uma linha no map; sem `location` extra.
-
-4. O mesmo token no painel. Hosts desse proxy saem por `/console/{slug}/`.
+Libere a porta **9100 só do Zabbix server** em cada proxy. Sem `location` manual por proxy.
 
 ## Binário (na mão)
 
