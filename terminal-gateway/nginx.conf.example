@@ -1,7 +1,7 @@
 # Web do Zabbix server — uma location para todos os slugs.
-# map: console.map.conf no http {}. $1 = slug, $2 = /terminal/open ou /health.
+# map: console.map.conf no http {}. $1 = slug, $2 = resto (/terminal/open, /health).
 
-location ~ ^/console/([A-Za-z0-9][A-Za-z0-9._-]{0,63})(/.*)$ {
+location ~ ^/console/([A-Za-z0-9._-]+)(/.*)$ {
     resolver 127.0.0.53 127.0.0.1 ipv6=off valid=30s;
     proxy_pass http://$topovision_console_pass$2$is_args$args;
     proxy_http_version 1.1;

@@ -211,7 +211,7 @@ write_nginx_map() {
   cat >"$NGINX_MAP" <<EOF
 map \$uri \$topovision_console_slug {
     default "";
-    ~^/console/([A-Za-z0-9][A-Za-z0-9._-]{0,63})(?:/|\$)  \$1;
+    "~^/console/([A-Za-z0-9._-]+)"  \$1;
 }
 
 map \$topovision_console_slug \$topovision_console_pass {
@@ -360,7 +360,7 @@ write_nginx_snippet() {
   local resolvers
   resolvers="$(nginx_resolver)"
   cat >"$NGINX_SNIPPET" <<EOF
-location ~ ^/console/([A-Za-z0-9][A-Za-z0-9._-]{0,63})(/.*)\$ {
+location ~ ^/console/([A-Za-z0-9._-]+)(/.*)\$ {
     resolver ${resolvers} ipv6=off valid=30s;
     proxy_pass http://\$topovision_console_pass\$2\$is_args\$args;
     proxy_http_version 1.1;
