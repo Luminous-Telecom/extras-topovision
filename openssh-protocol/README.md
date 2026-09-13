@@ -11,20 +11,22 @@ O menu **SSH** do mapa abre o **OpenSSH do Windows no CMD**, não o PuTTY.
 
 A senha **não** vai na URL: o `ssh` pede no prompt do CMD.
 
-## Instalar (uma vez por PC)
+## Como instalar
+
+Uma vez por PC.
+
+1. Clone ou baixe o ZIP do [extras-topovision](https://github.com/Luminous-Telecom/extras-topovision) e entre em `openssh-protocol`.
+2. Confira o OpenSSH: no CMD, `ssh`. Se não existir: **Configurações → Aplicativos → Recursos opcionais → OpenSSH Client**.
+3. No PowerShell desta pasta:
 
 ```powershell
-cd openssh-protocol
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 Deve aparecer `Registrado: openssh://`.
 
-Confira o OpenSSH: no CMD, `ssh`. Se não existir: **Configurações → Aplicativos → Recursos opcionais → OpenSSH Client**.
-
-## Conferir
-
-Na barra do Chrome/Edge: `openssh://open?h=10.0.0.1` — deve abrir um CMD com `ssh`.
+4. Teste na barra do Chrome/Edge: `openssh://open?h=10.0.0.1` — deve abrir um CMD com `ssh`.
+5. No mapa: clique direito no host → **Ferramentas** → **SSH**.
 
 ## Remover
 

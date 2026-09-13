@@ -14,7 +14,7 @@ estiver no ar.
 
 Slug: nome do proxy em minúsculas, sem acento (`Proxy A` → `proxy-a`).
 
-## Instalador
+## Como instalar
 
 O binário sai deste repositório (GitHub). **Não** precisa de Grafana na máquina — no proxy
 remoto só o Zabbix server alcança o equipamento; o Grafana fala com a **web do Zabbix server**.
